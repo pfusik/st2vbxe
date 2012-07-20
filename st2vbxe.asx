@@ -165,6 +165,8 @@ getchar
 open
 	mwa	#filename	$354
 open_1
+	mva	#4	$35a
+	mva	#0	$35b
 	lda	#3
 cio
 	sta	$352
@@ -292,8 +294,8 @@ format_error_txt
 keyboard_device
 	dta	c'K:',$9b
 filename
-:FILE==0	dta	c'D:STPAD.PI1',$9b
-:FILE==1	dta	c'D:MEDRES.PI2',$9b
+	dta	c'H:STPAD.PI1',$9b
+;	dta	c'H:MEDRES.PI2',$9b
 
 buffer	org	*+BUFFER_LEN
 st_palette	equ	buffer+2
