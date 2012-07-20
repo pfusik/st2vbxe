@@ -1,0 +1,302 @@
+BUFFER_LINES	equ	10
+BUFFER_LEN	equ	BUFFER_LINES*160
+
+xdl_vbxe	equ	$10000
+scr_vbxe	equ	$10100
+
+fx_ptr	equ	$80
+st_resolution	equ	$82
+y	equ	$83
+scr_ptr	equ	$84
+vbxe_bank	equ	$86
+buf_ptr	equ	$88
+bitplane	equ	$8a	; 4
+
+	org	$8000
+main
+	jsr	fx_detect
+	beq	found_vbxe
+	lda	<vbxe_not_found_txt
+	ldx	>vbxe_not_found_txt
+	jmp	print
+found_vbxe
+
+	jsr	open
+	bmi	io_error
+	lda	<34
+	ldx	>34
+	jsr	read
+	bmi	io_error
+
+	lda	buffer
+	bne	format_error
+	lda	buffer+1
+	cmp	#2
+	bcc	format_ok
+format_error
+	lda	<format_error_txt
+	ldx	>format_error_txt
+	jmp	print
+format_ok
+	sta	st_resolution
+:4	asl	@
+	; XDLC_HR
+	ora	#$80
+	sta	xdl_1+1
+
+	jsr	set_palette
+	jsr	setup_vbxe
+
+	mwa	#$4000+[scr_vbxe&$3fff]	scr_ptr
+	ldy	#$5d	; MEMB
+	mva	#$80+[scr_vbxe>>14]	(fx_ptr),y	; mbce
+	sta	vbxe_bank
+	lda	#0
+read_1
+	sta	y
+	lda	<BUFFER_LEN
+	ldx	>BUFFER_LEN
+	jsr	read
+	bmi	io_error
+	jsr	decode
+	lda	y
+	add	#BUFFER_LINES
+	cmp	#200
+	bcc	read_1
+
+	jsr	close
+
+	jsr	getchar
+
+	jsr	reset_vbxe
+	ldy	#1
+	rts
+
+io_error
+	jsr	reset_vbxe
+	lda	<io_error_txt
+	ldx	>io_error_txt
+	jmp	print
+
+fx_detect
+	mwa	#$d600	fx_ptr
+	jsr	fx_detect_1
+	beq	fx_detect_exit
+	inc	fx_ptr+1
+fx_detect_1
+	ldy	#$40
+	lda	(fx_ptr),y
+	cmp	#$10
+	bne	fx_detect_exit
+	iny
+	lda	(fx_ptr),y
+	and	#$70
+	cmp	#$20
+fx_detect_exit
+	rts
+
+set_palette
+	ldy	#$44
+	mva	#0	(fx_ptr),y+	; CSEL
+	mva	#1	(fx_ptr),y	; PSEL
+	ldx	#0
+set_palette_1
+	lda	st_palette,x+
+	and	#7
+	tay
+	lda	set_palette_st2vbxe,y
+	ldy	#$46	; CR
+	sta	(fx_ptr),y
+	lda	st_palette,x
+:4	lsr	@
+	and	#7
+	tay
+	lda	set_palette_st2vbxe,y
+	ldy	#$47	; CG
+	sta	(fx_ptr),y
+	lda	st_palette,x+
+	and	#7
+	tay
+	lda	set_palette_st2vbxe,y
+	ldy	#$48	; CB
+	sta	(fx_ptr),y
+	cpx	#32
+	bcc	set_palette_1
+	rts
+
+setup_vbxe
+	ldy	#$5d	; MEMB
+	mva	#$80+[xdl_vbxe>>14]	(fx_ptr),y	; mbce
+	ldy	#xdl_len-1
+	mva:rpl	xdl,y	$4000+[xdl_vbxe&$3fff],y-
+	mva	#0	$22f
+	lda	20
+	cmp:req	20
+	ldy	#$40	; VIDEO_CONTROL
+	mva	#5	(fx_ptr),y+	; no_trans|xdl_enabled
+	mva	#xdl_vbxe&$ff	(fx_ptr),y+
+	mva	#[xdl_vbxe>>8]&$ff	(fx_ptr),y+
+	mva	#xdl_vbxe>>16	(fx_ptr),y
+	rts
+
+reset_vbxe
+	ldy	#$5d	; MEMB
+	mva	#0	(fx_ptr),y
+	ldy	#$40	; VIDEO_CONTROL
+	mva	#0	(fx_ptr),y
+	mva	#$22	$22f
+	rts
+
+print
+	sta	$344
+	stx	$345
+	mva	#1	$349
+	mva	#9	$342
+	ldx	#0
+	jmp	$e456
+
+getchar
+	mwa	#keyboard_device	$354
+	jsr	open_1
+	lda:tax	#0
+	jsr	read
+	jmp	close
+
+open
+	mwa	#filename	$354
+open_1
+	lda	#3
+cio
+	sta	$352
+	ldx	#$10
+	jmp	$e456
+
+read
+	sta	$358
+	stx	$359
+	mwa	#buffer	$354
+	lda	#7
+	bne	cio	!
+
+close
+	lda	#12
+	bne	cio	!
+
+decode
+	mwa	#buffer	buf_ptr
+decode_1
+	jsr	decode_16pixels
+	add:sta	buf_ptr
+	scc:inc	buf_ptr+1
+	cmp	<buffer+BUFFER_LEN
+	lda	buf_ptr+1
+	sbc	>buffer+BUFFER_LEN
+	bcc	decode_1
+	rts
+
+decode_16pixels
+	lda	st_resolution
+	bne	decode_medium_16pixels
+decode_low_16pixels
+	jsr	decode_low_8pixels
+	inw	buf_ptr
+	jsr	decode_low_8pixels
+	lda	#7
+	rts
+	
+decode_low_8pixels
+	ldy	#0
+	mva	(buf_ptr),y	bitplane
+	ldy	#2
+	mva	(buf_ptr),y	bitplane+1
+	ldy	#4
+	mva	(buf_ptr),y	bitplane+2
+	ldy	#6
+	mva	(buf_ptr),y	bitplane+3
+	ldx	#8
+decode_low_1pixel
+	lda	#0
+	asl	bitplane+3
+	rol	@
+	asl	bitplane+2
+	rol	@
+	asl	bitplane+1
+	rol	@
+	asl	bitplane
+	rol	@
+	jsr	put_vbxe_byte
+	dex
+	bne	decode_low_1pixel
+	rts
+
+decode_medium_16pixels
+	jsr	decode_medium_8pixels
+	inw	buf_ptr
+	jsr	decode_medium_8pixels
+	lda	#3
+	rts
+
+decode_medium_8pixels
+	ldy	#0
+	mva	(buf_ptr),y	bitplane
+	ldy	#2
+	mva	(buf_ptr),y	bitplane+1
+	ldx	#4
+decode_medium_2pixels
+	lda	#0
+	asl	bitplane+1
+	rol	@
+	asl	bitplane
+	rol	@
+	asl:asl	@
+	asl	bitplane+1
+	rol	@
+	asl	bitplane
+	rol	@
+	jsr	put_vbxe_byte
+	dex
+	bne	decode_medium_2pixels
+	rts
+
+put_vbxe_byte
+	sta	(scr_ptr),0
+	inc	scr_ptr
+	bne	put_vbxe_byte_ret
+	inc	scr_ptr+1
+	bpl	put_vbxe_byte_ret
+	lsr	scr_ptr+1
+	ldy	#$5d	; MEMB
+	inc:mva	vbxe_bank	(fx_ptr),y
+put_vbxe_byte_ret
+	rts
+
+set_palette_st2vbxe
+:8	dta	36*#
+
+xdl
+	dta	a($24) ; XDLC_OVOFF|XDLC_RTPL
+	dta	b(19)
+xdl_1
+	dta	a($8062) ; XDLC_GMON|XDLC_RTPL|XDLC_OVADR|XDLC_END
+	dta	b(199)
+	dta	a(scr_vbxe&$ffff),b(scr_vbxe>>16),a(320)
+xdl_len	equ	*-xdl
+
+vbxe_not_found_txt
+	dta	c'This program requires VBXE FX v1.2x!',$9b
+io_error_txt
+	dta	c'I/O error',$9b
+format_error_txt
+	dta	c'Invalid file - must be *.PI1 or *.PI2',$9b
+
+keyboard_device
+	dta	c'K:',$9b
+filename
+:FILE==0	dta	c'D:STPAD.PI1',$9b
+:FILE==1	dta	c'D:MEDRES.PI2',$9b
+
+buffer	org	*+BUFFER_LEN
+st_palette	equ	buffer+2
+
+	run	main
+	end
