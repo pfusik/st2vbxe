@@ -74,6 +74,7 @@ read_1
 
 io_error
 	jsr	reset_vbxe
+	jsr	close
 	lda	<io_error_txt
 	ldx	>io_error_txt
 	jmp	print
