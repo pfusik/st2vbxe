@@ -1,15 +1,33 @@
+; Show Atari ST graphics file in the DEGAS format:
+; *.PI1 = 320x200, 16 colors
+; *.PI2 = 640x200, 4 colors
+; Filename is hard-coded, I'm too lazy to code a file picker or command line parsing. ;)
+; I mean, that's an exercise for the reader!
+
+; "THE BEER-WARE LICENSE" (Revision 42):
+; Piotr Fusik <fox@scene.pl> wrote this file.
+; As long as you retain this notice you can do whatever you want with this stuff.
+; If we meet some day, and you think this stuff is worth it, you can buy me a beer in return.
+ 
+; How many lines to read from the disk at once?
+; 10 is a quick compromise between performance, memory usage
+; and visible progress when reading from floppy.
 BUFFER_LINES	equ	10
+	ert	200%BUFFER_LINES!=0
 BUFFER_LEN	equ	BUFFER_LINES*160
 
+; Addresses in VBXE memory
 xdl_vbxe	equ	$10000
 scr_vbxe	equ	$10100
 
-fx_ptr	equ	$80
+; Zero-page variables
+fx_ptr	equ	$80	; 2
 st_resolution	equ	$82
 y	equ	$83
-scr_ptr	equ	$84
+scr_ptr	equ	$84	; 2
 vbxe_bank	equ	$86
-buf_ptr	equ	$88
+save_colbak	equ	$87
+buf_ptr	equ	$88	; 2
 bitplane	equ	$8a	; 4
 
 	org	$8000
@@ -21,6 +39,9 @@ main
 	jmp	print
 found_vbxe
 
+	mva	$2c8	save_colbak
+	lda	<filename
+	ldx	>filename
 	jsr	open
 	bmi	io_error
 	lda	<34
@@ -39,9 +60,8 @@ format_error
 	jmp	print
 format_ok
 	sta	st_resolution
-:4	asl	@
-	; XDLC_HR
-	ora	#$80
+:4	asl	@	; 0->0, 1->XDLC_HR
+	ora	>$8000	; XDLC_END
 	sta	xdl_1+1
 
 	jsr	set_palette
@@ -70,7 +90,7 @@ read_1
 
 	jsr	reset_vbxe
 	ldy	#1
-	rts
+	rts	; return to DOS
 
 io_error
 	jsr	reset_vbxe
@@ -85,14 +105,14 @@ fx_detect
 	beq	fx_detect_exit
 	inc	fx_ptr+1
 fx_detect_1
-	ldy	#$40
+	ldy	#$40	; CORE_VERSION
 	lda	(fx_ptr),y
-	cmp	#$10
+	cmp	#$10	; FX 1.xx
 	bne	fx_detect_exit
-	iny
+	iny	; MINOR_VERSION
 	lda	(fx_ptr),y
 	and	#$70
-	cmp	#$20
+	cmp	#$20	; 1.2x
 fx_detect_exit
 	rts
 
@@ -102,6 +122,7 @@ set_palette
 	mva	#1	(fx_ptr),y	; PSEL
 	ldx	#0
 set_palette_1
+; Each ST color is %xxxxxRRR %xGGGxBBB
 	lda	st_palette,x+
 	and	#7
 	tay
@@ -131,13 +152,14 @@ setup_vbxe
 	ldy	#xdl_len-1
 	mva:rpl	xdl,y	$4000+[xdl_vbxe&$3fff],y-
 	mva	#0	$22f
+	sta	$2c8
 	lda	20
 	cmp:req	20
 	ldy	#$40	; VIDEO_CONTROL
 	mva	#5	(fx_ptr),y+	; no_trans|xdl_enabled
-	mva	#xdl_vbxe&$ff	(fx_ptr),y+
-	mva	#[xdl_vbxe>>8]&$ff	(fx_ptr),y+
-	mva	#xdl_vbxe>>16	(fx_ptr),y
+	mva	#xdl_vbxe&$ff	(fx_ptr),y+	; XDL_ADR0
+	mva	#[xdl_vbxe>>8]&$ff	(fx_ptr),y+	; XDL_ADR1
+	mva	#xdl_vbxe>>16	(fx_ptr),y	; XDL_ADR2
 	rts
 
 reset_vbxe
@@ -146,43 +168,46 @@ reset_vbxe
 	ldy	#$40	; VIDEO_CONTROL
 	mva	#0	(fx_ptr),y
 	mva	#$22	$22f
+	mva	save_colbak	$2c8
 	rts
 
 print
 	sta	$344
 	stx	$345
-	mva	#1	$349
-	mva	#9	$342
+	mva	>1024	$349	; just don't print more than 1k characters ;)
+	mva	#9	$342	; write line
 	ldx	#0
 	jmp	$e456
 
 getchar
-	mwa	#keyboard_device	$354
-	jsr	open_1
+; Doesn't return the char actually
+	lda	<keyboard_device
+	ldx	>keyboard_device
+	jsr	open
 	lda:tax	#0
 	jsr	read
 	jmp	close
 
 open
-	mwa	#filename	$354
-open_1
-	mva	#4	$35a
+	sta	$354
+	stx	$355
+	mva	#4	$35a	; open for read
 	mva	#0	$35b
-	lda	#3
+	lda	#3	; open
 cio
 	sta	$352
-	ldx	#$10
+	ldx	#$10	; channel #1
 	jmp	$e456
 
 read
 	sta	$358
 	stx	$359
 	mwa	#buffer	$354
-	lda	#7
+	lda	#7	; read binary
 	bne	cio	!
 
 close
-	lda	#12
+	lda	#12	; close
 	bne	cio	!
 
 decode
@@ -201,12 +226,16 @@ decode_16pixels
 	lda	st_resolution
 	bne	decode_medium_16pixels
 decode_low_16pixels
-	jsr	decode_low_8pixels
+; 16-color Atari ST mode is B0 B0 B1 B1 B2 B2 B3 B3 B0 B0 B1 B1 ...
+; where B0 are bytes of the least-significant bitplane
+; and B3 are bytes of the most-significant bitplane.
+; For each pixel we need to get one bit from each bitplane.
+	jsr	decode_low_8pixels	; B0 -- B1 -- B2 -- B3 --
 	inw	buf_ptr
-	jsr	decode_low_8pixels
-	lda	#7
+	jsr	decode_low_8pixels	; -- B0 -- B1 -- B2 -- B3
+	lda	#7                	; advance here -----------^^
 	rts
-	
+
 decode_low_8pixels
 	ldy	#0
 	mva	(buf_ptr),y	bitplane
@@ -233,10 +262,11 @@ decode_low_1pixel
 	rts
 
 decode_medium_16pixels
-	jsr	decode_medium_8pixels
+; 4-color Atari ST mode is B0 B0 B1 B1 B0 B0 B1 B1 B0 ...
+	jsr	decode_medium_8pixels ; B0 -- B1 --
 	inw	buf_ptr
-	jsr	decode_medium_8pixels
-	lda	#3
+	jsr	decode_medium_8pixels ; -- B0 -- B1
+	lda	#3                    ; advance here ^^
 	rts
 
 decode_medium_8pixels
@@ -246,6 +276,7 @@ decode_medium_8pixels
 	mva	(buf_ptr),y	bitplane+1
 	ldx	#4
 decode_medium_2pixels
+; for 640-pixel VBXE mode need to pack pixels in nibbles
 	lda	#0
 	asl	bitplane+1
 	rol	@
@@ -274,14 +305,14 @@ put_vbxe_byte_ret
 	rts
 
 set_palette_st2vbxe
-:8	dta	36*#
+:8	dta	255*#/7
 
 xdl
-	dta	a($24) ; XDLC_OVOFF|XDLC_RTPL
-	dta	b(19)
+	dta	a($24)	; XDLC_OVOFF|XDLC_RTPL
+	dta	b(19)	; 20 lines top border (VBXE screen is 240 lines)
 xdl_1
 	dta	a($8062) ; XDLC_GMON|XDLC_RTPL|XDLC_OVADR|XDLC_END
-	dta	b(199)
+	dta	b(199)	; 200 lines picture
 	dta	a(scr_vbxe&$ffff),b(scr_vbxe>>16),a(320)
 xdl_len	equ	*-xdl
 
