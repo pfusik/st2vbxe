@@ -1,15 +1,28 @@
 ; Show Atari ST graphics file in the DEGAS format:
-; *.PI1 = 320x200, 16 colors
-; *.PI2 = 640x200, 4 colors
+; *.PI1 = 320x200, 16 colors from 512
+; *.PI2 = 640x200, 4 colors from 512
 ; Filename is hard-coded, I'm too lazy to code a file picker or command line parsing. ;)
 ; I mean, that's an exercise for the reader!
+
+; It's not that VBXE has as good graphics as ST. It has better:
+; 320x240, 256 colors from 2097152
+; 640x240, 16 colors from 2097152
+; ST high resolution, that is 640x400 black-and-white, should also be doable
+; using the interlace trick revealed in 2009 by Rybags.
+; That's another exercise for you!
 
 ; "THE BEER-WARE LICENSE" (Revision 42):
 ; Piotr Fusik <fox@scene.pl> wrote this file.
 ; As long as you retain this notice you can do whatever you want with this stuff.
 ; If we meet some day, and you think this stuff is worth it, you can buy me a beer in return.
- 
-; How many lines to read from the disk at once?
+
+; <commercial-break>
+; To view ST pictures under Windows and Linux, visit http://fail.sourceforge.net/
+; </commercial-break>
+
+; <body> ;)
+
+; How many picture lines to read from disk at once?
 ; 10 is a quick compromise between performance, memory usage
 ; and visible progress when reading from floppy.
 BUFFER_LINES	equ	10
@@ -30,7 +43,7 @@ save_colbak	equ	$87
 buf_ptr	equ	$88	; 2
 bitplane	equ	$8a	; 4
 
-	org	$8000
+	org	$8000	; we'll map VBXE memory into $4000-$7fff
 main
 	jsr	fx_detect
 	beq	found_vbxe
@@ -65,29 +78,33 @@ format_ok
 	sta	xdl_1+1
 
 	jsr	set_palette
-	jsr	setup_vbxe
 
 	mwa	#$4000+[scr_vbxe&$3fff]	scr_ptr
-	ldy	#$5d	; MEMB
-	mva	#$80+[scr_vbxe>>14]	(fx_ptr),y	; mbce
-	sta	vbxe_bank
-	lda	#0
+	mva	#$80+[scr_vbxe>>14]	vbxe_bank
+	mva	#0	y
 read_1
-	sta	y
 	lda	<BUFFER_LEN
 	ldx	>BUFFER_LEN
 	jsr	read
 	bmi	io_error
 	jsr	decode
 	lda	y
+	bne	vbxe_set_up
+	jsr	setup_vbxe
+	lda	#0
+vbxe_set_up
 	add	#BUFFER_LINES
-	cmp	#200
+	sta	y
+; Make VBXE display as many lines as we drawn
+	tax:dex
+	ldy	#$5d	; MEMB
+	mva	#$80+[[xdl_vbxe+xdl_2-xdl]>>14]	(fx_ptr),y	; mbce
+	stx	$4000+[[xdl_vbxe+xdl_2-xdl]&$3fff]
+	cpx	#199
 	bcc	read_1
 
 	jsr	close
-
 	jsr	getchar
-
 	jsr	reset_vbxe
 	ldy	#1
 	rts	; return to DOS
@@ -151,10 +168,10 @@ setup_vbxe
 	mva	#$80+[xdl_vbxe>>14]	(fx_ptr),y	; mbce
 	ldy	#xdl_len-1
 	mva:rpl	xdl,y	$4000+[xdl_vbxe&$3fff],y-
-	mva	#0	$22f
-	sta	$2c8
+	mva	#0	$22f	; disable ANTIC graphics
+	sta	$2c8	; black border
 	lda	20
-	cmp:req	20
+	cmp:req	20	; wait for vblank
 	ldy	#$40	; VIDEO_CONTROL
 	mva	#5	(fx_ptr),y+	; no_trans|xdl_enabled
 	mva	#xdl_vbxe&$ff	(fx_ptr),y+	; XDL_ADR0
@@ -167,7 +184,7 @@ reset_vbxe
 	mva	#0	(fx_ptr),y
 	ldy	#$40	; VIDEO_CONTROL
 	mva	#0	(fx_ptr),y
-	mva	#$22	$22f
+	mva	#$22	$22f	; normal screen
 	mva	save_colbak	$2c8
 	rts
 
@@ -212,6 +229,8 @@ close
 
 decode
 	mwa	#buffer	buf_ptr
+	ldy	#$5d	; MEMB
+	mva	vbxe_bank	(fx_ptr),y	; mbce
 decode_1
 	jsr	decode_16pixels
 	add:sta	buf_ptr
@@ -312,7 +331,8 @@ xdl
 	dta	b(19)	; 20 lines top border (VBXE screen is 240 lines)
 xdl_1
 	dta	a($8062) ; XDLC_GMON|XDLC_RTPL|XDLC_OVADR|XDLC_END
-	dta	b(199)	; 200 lines picture
+xdl_2
+	dta	b(0)	; goes up to 199 (200 lines)
 	dta	a(scr_vbxe&$ffff),b(scr_vbxe>>16),a(320)
 xdl_len	equ	*-xdl
 
@@ -327,7 +347,7 @@ keyboard_device
 	dta	c'K:',$9b
 filename
 	dta	c'H:STPAD.PI1',$9b
-;	dta	c'H:MEDRES.PI2',$9b
+;	dta	c'H:BG_PIC.PI2',$9b
 
 buffer	org	*+BUFFER_LEN
 st_palette	equ	buffer+2
