@@ -1,15 +1,16 @@
 ; Show Atari ST graphics file in the DEGAS format:
 ; *.PI1 = 320x200, 16 colors from 512
 ; *.PI2 = 640x200, 4 colors from 512
+; *.PI3 = 640x400, black and white
 ; Filename is hard-coded, I'm too lazy to code a file picker or command line parsing. ;)
 ; I mean, that's an exercise for the reader!
 
 ; It's not that VBXE has as good graphics as ST. It has better:
 ; 320x240, 256 colors from 2097152
 ; 640x240, 16 colors from 2097152
-; ST high resolution, that is 640x400 black-and-white, should also be doable
-; using the interlace trick revealed in 2009 by Rybags.
-; That's another exercise for you!
+; 480 lines would be doable using the interlace trick revealed in 2009 by Rybags.
+; Unfortunately, Rybags' trick doesn't work on all TVs (especially the LCDs) and emulators.
+; Therefore, I reduce ST high to ST medium, using gray pixels if mixing black and white.
 
 ; "THE BEER-WARE LICENSE" (Revision 42):
 ; Piotr Fusik <fox@scene.pl> wrote this file.
@@ -65,7 +66,7 @@ found_vbxe
 	lda	buffer
 	bne	format_error
 	lda	buffer+1
-	cmp	#2
+	cmp	#3
 	bcc	format_ok
 format_error
 	lda	<format_error_txt
@@ -73,7 +74,8 @@ format_error
 	jmp	print
 format_ok
 	sta	st_resolution
-:4	asl	@	; 0->0, 1->XDLC_HR
+	tax
+	seq:lda	>$1000	; XDLC_HR
 	ora	>$8000	; XDLC_END
 	sta	xdl_1+1
 
@@ -138,6 +140,8 @@ set_palette
 	mva	#0	(fx_ptr),y+	; CSEL
 	mva	#1	(fx_ptr),y	; PSEL
 	ldx	#0
+	cmp	st_resolution
+	bcc	set_palette_hires
 set_palette_1
 ; Each ST color is %xxxxxRRR %xGGGxBBB
 	lda	st_palette,x+
@@ -161,6 +165,21 @@ set_palette_1
 	sta	(fx_ptr),y
 	cpx	#32
 	bcc	set_palette_1
+	rts
+
+set_palette_hires
+; white, gray, gray, black
+	lda	#$ff
+	jsr	set_palette_gray
+	lsr	@
+	jsr	set_palette_gray
+	jsr	set_palette_gray
+	lda	#0
+set_palette_gray
+	ldy	#$46	; CR
+	sta	(fx_ptr),y+
+	sta	(fx_ptr),y+
+	sta	(fx_ptr),y
 	rts
 
 setup_vbxe
@@ -232,7 +251,7 @@ decode
 	ldy	#$5d	; MEMB
 	mva	vbxe_bank	(fx_ptr),y	; mbce
 decode_1
-	jsr	decode_16pixels
+	jsr	decode_chunk
 	add:sta	buf_ptr
 	scc:inc	buf_ptr+1
 	cmp	<buffer+BUFFER_LEN
@@ -241,9 +260,9 @@ decode_1
 	bcc	decode_1
 	rts
 
-decode_16pixels
+decode_chunk
 	lda	st_resolution
-	bne	decode_medium_16pixels
+	bne	decode_medium_or_high_chunk
 decode_low_16pixels
 ; 16-color Atari ST mode is B0 B0 B1 B1 B2 B2 B3 B3 B0 B0 B1 B1 ...
 ; where B0 are bytes of the least-significant bitplane
@@ -280,6 +299,10 @@ decode_low_1pixel
 	bne	decode_low_1pixel
 	rts
 
+decode_medium_or_high_chunk
+	lsr	@
+	bne	decode_high_line
+
 decode_medium_16pixels
 ; 4-color Atari ST mode is B0 B0 B1 B1 B0 B0 B1 B1 B0 ...
 	jsr	decode_medium_8pixels ; B0 -- B1 --
@@ -289,10 +312,10 @@ decode_medium_16pixels
 	rts
 
 decode_medium_8pixels
-	ldy	#0
-	mva	(buf_ptr),y	bitplane
 	ldy	#2
+decode_medium_8pixels_offset
 	mva	(buf_ptr),y	bitplane+1
+	mva	(buf_ptr),0	bitplane
 	ldx	#4
 decode_medium_2pixels
 ; for 640-pixel VBXE mode need to pack pixels in nibbles
@@ -309,6 +332,18 @@ decode_medium_2pixels
 	jsr	put_vbxe_byte
 	dex
 	bne	decode_medium_2pixels
+	rts
+
+decode_high_line
+; 640x400 - convert to 640x200
+	mva	#80	bitplane+2
+decode_high_8pixels
+	ldy	#80
+	jsr	decode_medium_8pixels_offset
+	inw	buf_ptr
+	dec	bitplane+2
+	bne	decode_high_8pixels
+	lda	#80
 	rts
 
 put_vbxe_byte
@@ -346,8 +381,9 @@ format_error_txt
 keyboard_device
 	dta	c'K:',$9b
 filename
-	dta	c'H:STPAD.PI1',$9b
+;	dta	c'H:STPAD.PI1',$9b
 ;	dta	c'H:BG_PIC.PI2',$9b
+	dta	c'H:DEVGEM7.PI3',$9b
 
 buffer	org	*+BUFFER_LEN
 st_palette	equ	buffer+2
