@@ -1,16 +1,15 @@
-; Show Atari ST graphics file:
+; Show Atari ST/Falcon graphics file:
 ; *.PI1 = "DEGAS", 320x200, 16 colors from 512
 ; *.PI2 = "DEGAS", 640x200, 4 colors from 512
 ; *.PI3 = "DEGAS", 640x400, black and white
 ; *.DOO = "Doodle", 640x400, black and white
 ; *.NEO = "NEOchrome", any of the above resolutions
+; *.PI4, *.PI9 = "Fuckpaint", 320x200, 256 colors from 262144
+; *.DGU, *.DG1 = "DuneGraph", 320x200, 256 colors from 262144
 ; Filename is hard-coded, I'm too lazy to code a file picker or command line parsing. ;)
 ; I mean, that's an exercise for the reader!
 
-; It's not that VBXE has as good graphics as ST. It has better:
-; 320x240, 256 colors from 2097152
-; 640x240, 16 colors from 2097152
-; 480 lines would be doable using the interlace trick revealed in 2009 by Rybags.
+; 400 lines would be doable using the interlace trick revealed in 2009 by Rybags.
 ; Unfortunately, Rybags' trick doesn't work on all TVs (especially the LCDs) and emulators.
 ; Therefore, I reduce ST high to ST medium, using gray pixels if mixing black and white.
 
@@ -28,9 +27,10 @@
 ; How many picture lines to read from disk at once?
 ; 10 is a quick compromise between performance, memory usage
 ; and visible progress when reading from floppy.
-BUFFER_LINES	equ	10
-	ert	200%BUFFER_LINES!=0
-BUFFER_LEN	equ	BUFFER_LINES*160
+BUFFER_STLINES	equ	10
+	ert	200%BUFFER_STLINES!=0
+	ert	BUFFER_STLINES%2!=0
+BUFFER_LEN	equ	BUFFER_STLINES*160
 
 ; Addresses in VBXE memory
 xdl_vbxe	equ	$10000
@@ -44,7 +44,8 @@ scr_ptr	equ	$84	; 2
 vbxe_bank	equ	$86
 save_colbak	equ	$87
 buf_ptr	equ	$88	; 2
-bitplane	equ	$8a	; 4
+bitplane	equ	$8a	; 8
+cnt	equ	$92
 
 	org	$8000	; we'll map VBXE memory into $4000-$7fff
 main
@@ -62,7 +63,9 @@ found_vbxe
 
 ;	jmp	degas_header
 ;	jmp	doodle_header
-	jmp	neo_header
+;	jmp	neo_header
+;	jmp	fuckpaint_header
+	jmp	dunegraph_header
 
 neo_header
 	lda	#2
@@ -87,15 +90,34 @@ format_error
 	lda	<format_error_txt
 	ldx	>format_error_txt
 	jmp	print
+
 doodle_header
 	lda	#2
+	bne	format_ok	; jmp
+
+dunegraph_header
+	lda	#8
+	jsr	read_short
+	ldy	#7
+dunegraph_check_header
+	lda	buffer,y
+	cmp	dunegraph_expected_header,y
+	bne	format_error
+	dey
+	bpl	dunegraph_check_header
+
+fuckpaint_header
+	lda	<1024
+	ldx	>1024
+	jsr	read
+	lda	#3
 
 format_ok
 	sta	st_resolution
 	tax
-	seq:lda	>$1000	; XDLC_HR
-	ora	>$8000	; XDLC_END
-	sta	xdl_1+1
+	mva	stres2vbxe,x	xdl_1+1
+	mva	stres2decode_lo,x	decode_ptr
+	mva	stres2decode_hi,x	decode_ptr+1
 
 	jsr	set_palette
 
@@ -112,7 +134,8 @@ read_1
 	jsr	setup_vbxe
 	lda	#0
 vbxe_set_up
-	add	#BUFFER_LINES
+	ldx	st_resolution
+	add	stres2lines,x
 	sta	y
 ; Make VBXE display as many lines as we have drawn
 	tax:dex
@@ -150,9 +173,33 @@ set_palette
 	mva	#0	(fx_ptr),y+	; CSEL
 	mva	#1	(fx_ptr),y	; PSEL
 	ldx	#0
-	cmp	st_resolution
-	bcc	set_palette_hires
-set_palette_1
+	lda	st_resolution
+	cmp	#2
+	bcc	set_palette_st
+	beq	set_palette_hires
+
+set_palette_falcon
+	mwa	#buffer	buf_ptr
+set_palette_falcon_1
+	lda	(buf_ptr),0
+	ldy	#$46	; CR
+	sta	(fx_ptr),y
+	ldy	#1
+	lda	(buf_ptr),y
+	ldy	#$47	; CG
+	sta	(fx_ptr),y
+	ldy	#3
+	lda	(buf_ptr),y
+	ldy	#$48	; CB
+	sta	(fx_ptr),y
+	lda	#4
+	add:sta	buf_ptr
+	scc:inc	buf_ptr+1
+	inx
+	bne	set_palette_falcon_1
+	rts
+
+set_palette_st
 ; Each ST color is %xxxxxRRR %xGGGxBBB
 	lda	st_palette,x+
 	and	#7
@@ -174,7 +221,7 @@ set_palette_1
 	ldy	#$48	; CB
 	sta	(fx_ptr),y
 	cpx	#32
-	bcc	set_palette_1
+	bcc	set_palette_st
 	rts
 
 set_palette_hires
@@ -273,7 +320,8 @@ decode
 	ldy	#$5d	; MEMB
 	mva	vbxe_bank	(fx_ptr),y	; mbce
 decode_1
-	jsr	decode_chunk
+	jsr	$2020
+decode_ptr	equ	*-2
 	add:sta	buf_ptr
 	scc:inc	buf_ptr+1
 	cmp	<buffer+BUFFER_LEN
@@ -282,9 +330,6 @@ decode_1
 	bcc	decode_1
 	rts
 
-decode_chunk
-	lda	st_resolution
-	bne	decode_medium_or_high_chunk
 decode_low_16pixels
 ; 16-color Atari ST mode is B0 B0 B1 B1 B2 B2 B3 B3 B0 B0 B1 B1 ...
 ; where B0 are bytes of the least-significant bitplane
@@ -320,10 +365,6 @@ decode_low_1pixel
 	dex
 	bne	decode_low_1pixel
 	rts
-
-decode_medium_or_high_chunk
-	lsr	@
-	bne	decode_high_line
 
 decode_medium_16pixels
 ; 4-color Atari ST mode is B0 B0 B1 B1 B0 B0 B1 B1 B0 ...
@@ -368,6 +409,34 @@ decode_high_8pixels
 	lda	#80
 	rts
 
+decode_falcon_16pixels
+	jsr	decode_falcon_8pixels
+	inw	buf_ptr
+	jsr	decode_falcon_8pixels
+	lda	#15
+	rts
+
+decode_falcon_8pixels
+	ldx	#7
+	ldy	#14
+decode_falcon_8pixels_load
+	mva	(buf_ptr),y	bitplane,x
+	dey:dey
+	dex
+	bpl	decode_falcon_8pixels_load
+	mva	#8	cnt
+decode_falcon_1pixel
+	ldx	#7
+decode_falcon_1bit
+	asl	bitplane,x
+	rol	@
+	dex
+	bpl	decode_falcon_1bit
+	jsr	put_vbxe_byte
+	dec	cnt
+	bne	decode_falcon_1pixel
+	rts
+
 put_vbxe_byte
 	sta	(scr_ptr),0
 	inc	scr_ptr
@@ -380,8 +449,23 @@ put_vbxe_byte
 put_vbxe_byte_ret
 	rts
 
+stres2vbxe
+	dta	h($8000,$9000,$9000,$8000) ; XDLC_END,XDLC_END|XDLC_HR
+
+stres2decode_lo
+	dta	l(decode_low_16pixels,decode_medium_16pixels,decode_high_line,decode_falcon_16pixels)
+
+stres2decode_hi
+	dta	h(decode_low_16pixels,decode_medium_16pixels,decode_high_line,decode_falcon_16pixels)
+
+stres2lines
+	dta	BUFFER_STLINES,BUFFER_STLINES,BUFFER_STLINES,BUFFER_STLINES/2
+
 set_palette_st2vbxe
 :8	dta	255*#/7
+
+dunegraph_expected_header
+	dta	c'DGU',1,h(320),l(320),h(200),l(200)
 
 xdl
 	dta	a($24)	; XDLC_OVOFF|XDLC_RTPL
@@ -398,7 +482,7 @@ vbxe_not_found_txt
 io_error_txt
 	dta	c'I/O error',$9b
 format_error_txt
-	dta	c'Invalid file - must be *.PI1 or *.PI2',$9b
+	dta	c'Invalid file',$9b
 
 keyboard_device
 	dta	c'K:',$9b
@@ -407,9 +491,11 @@ filename
 ;	dta	c'H:BG_PIC.PI2',$9b
 ;	dta	c'H:DEVGEM7.PI3',$9b
 ;	dta	c'H:ELMRSESN.DOO',$9b
-	dta	c'H:14TOURN.NEO',$9b
+;	dta	c'H:14TOURN.NEO',$9b
 ;	dta	c'H:ELMRSESN.NEO',$9b
 ;	dta	c'H:MEDRES.NEO',$9b
+;	dta	c'H:PIESIU.PI9',$9b
+	dta	c'H:PIESIU.DGU',$9b
 
 buffer	org	*+BUFFER_LEN
 st_palette	equ	buffer+2
