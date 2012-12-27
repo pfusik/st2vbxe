@@ -1,7 +1,9 @@
-; Show Atari ST graphics file in the DEGAS format:
-; *.PI1 = 320x200, 16 colors from 512
-; *.PI2 = 640x200, 4 colors from 512
-; *.PI3 = 640x400, black and white
+; Show Atari ST graphics file:
+; *.PI1 = "DEGAS", 320x200, 16 colors from 512
+; *.PI2 = "DEGAS", 640x200, 4 colors from 512
+; *.PI3 = "DEGAS", 640x400, black and white
+; *.DOO = "Doodle", 640x400, black and white
+; *.NEO = "NEOchrome", any of the above resolutions
 ; Filename is hard-coded, I'm too lazy to code a file picker or command line parsing. ;)
 ; I mean, that's an exercise for the reader!
 
@@ -52,16 +54,29 @@ main
 	ldx	>vbxe_not_found_txt
 	jmp	print
 found_vbxe
-
 	mva	$2c8	save_colbak
+
 	lda	<filename
 	ldx	>filename
 	jsr	open
-	bmi	io_error
-	lda	<34
-	ldx	>34
-	jsr	read
-	bmi	io_error
+
+;	jmp	degas_header
+;	jmp	doodle_header
+	jmp	neo_header
+
+neo_header
+	lda	#2
+	jsr	read_short
+	lda	buffer
+	ora	buffer+1
+	bne	format_error
+	lda	#126
+	bne	neo1	; jmp
+
+degas_header
+	lda	#34
+neo1
+	jsr	read_short
 
 	lda	buffer
 	bne	format_error
@@ -72,6 +87,9 @@ format_error
 	lda	<format_error_txt
 	ldx	>format_error_txt
 	jmp	print
+doodle_header
+	lda	#2
+
 format_ok
 	sta	st_resolution
 	tax
@@ -88,7 +106,6 @@ read_1
 	lda	<BUFFER_LEN
 	ldx	>BUFFER_LEN
 	jsr	read
-	bmi	io_error
 	jsr	decode
 	lda	y
 	bne	vbxe_set_up
@@ -97,7 +114,7 @@ read_1
 vbxe_set_up
 	add	#BUFFER_LINES
 	sta	y
-; Make VBXE display as many lines as we drawn
+; Make VBXE display as many lines as we have drawn
 	tax:dex
 	ldy	#$5d	; MEMB
 	mva	#$80+[[xdl_vbxe+xdl_2-xdl]>>14]	(fx_ptr),y	; mbce
@@ -110,13 +127,6 @@ vbxe_set_up
 	jsr	reset_vbxe
 	ldy	#1
 	rts	; return to DOS
-
-io_error
-	jsr	reset_vbxe
-	jsr	close
-	lda	<io_error_txt
-	ldx	>io_error_txt
-	jmp	print
 
 fx_detect
 	mwa	#$d600	fx_ptr
@@ -220,8 +230,8 @@ getchar
 	lda	<keyboard_device
 	ldx	>keyboard_device
 	jsr	open
-	lda:tax	#0
-	jsr	read
+	lda	#0
+	jsr	read_short
 	jmp	close
 
 open
@@ -233,8 +243,20 @@ open
 cio
 	sta	$352
 	ldx	#$10	; channel #1
-	jmp	$e456
+	jsr	$e456
+	bmi	io_error
+	rts
 
+io_error
+	pla:pla
+	jsr	reset_vbxe
+	jsr	close
+	lda	<io_error_txt
+	ldx	>io_error_txt
+	jmp	print
+
+read_short
+	ldx	#0
 read
 	sta	$358
 	stx	$359
@@ -383,7 +405,11 @@ keyboard_device
 filename
 ;	dta	c'H:STPAD.PI1',$9b
 ;	dta	c'H:BG_PIC.PI2',$9b
-	dta	c'H:DEVGEM7.PI3',$9b
+;	dta	c'H:DEVGEM7.PI3',$9b
+;	dta	c'H:ELMRSESN.DOO',$9b
+	dta	c'H:14TOURN.NEO',$9b
+;	dta	c'H:ELMRSESN.NEO',$9b
+;	dta	c'H:MEDRES.NEO',$9b
 
 buffer	org	*+BUFFER_LEN
 st_palette	equ	buffer+2
