@@ -25,6 +25,6 @@ but instead of waiting, why not fork this project and do it yourself?
 
 Cross-assemble with [xasm](https://github.com/pfusik/xasm).
 
-If you want to view the above formats (plus a hundred more)
-on a more popular platform such as Windows or Linux,
-try my other project called [FAIL](http://fail.sourceforge.net/).
+If you want to view the above formats (plus two hundred others)
+on a more popular platform such as Windows, Android or Linux,
+try my other project called [RECOIL](http://recoil.sourceforge.net/).
