@@ -5,9 +5,8 @@
 ; *.DOO = "Doodle", 640x400, black and white
 ; *.NEO = "NEOchrome", any of the above resolutions
 ; *.PI4, *.PI9 = "Fuckpaint", 320x200, 256 colors from 262144
-; *.DGU, *.DG1 = "DuneGraph", 320x200, 256 colors from 262144
-; Filename is hard-coded, I'm too lazy to code a file picker or command line parsing. ;)
-; I mean, that's an exercise for the reader!
+; *.DG1 = "DuneGraph", 320x200, 256 colors from 262144
+; Filename must be passed in SpartaDOS command line.
 
 ; 400 lines would be doable using the interlace trick revealed in 2009 by Rybags.
 ; Unfortunately, Rybags' trick doesn't work on all TVs (especially the LCDs) and emulators.
@@ -19,10 +18,8 @@
 ; If we meet some day, and you think this stuff is worth it, you can buy me a beer in return.
 
 ; <commercial-break>
-; To view ST pictures under Windows and Linux, visit http://fail.sourceforge.net/
+; To view ST pictures on Windows, Android, macOS and Linux, visit http://recoil.sourceforge.net/
 ; </commercial-break>
-
-; <body> ;)
 
 ; How many picture lines to read from disk at once?
 ; 10 is a quick compromise between performance, memory usage
@@ -49,6 +46,7 @@ cnt	equ	$92
 
 	org	$8000	; we'll map VBXE memory into $4000-$7fff
 main
+; Detect VBXE
 	jsr	fx_detect
 	beq	found_vbxe
 	lda	<vbxe_not_found_txt
@@ -57,16 +55,80 @@ main
 found_vbxe
 	mva	$2c8	save_colbak
 
+; Get filename
+	lda	11
+	cmp	#$c0
+	bcs	no_filename_error
+	ldy	#3
+	lda	(10),y
+	cmp	#{jmp a:}
+	bne	no_filename_error
+	iny
+	mva	(10),y	filename_jsr+1
+	iny
+	mva	(10),y	filename_jsr+2
+filename_jsr
+	jsr	$2020
+	beq	no_filename_error
+	ldy	#33
+filename_copy
+	mva	(10),y	filename-33,y+
+	cmp	#$9b
+	bne	filename_copy
+
+; Identify format by extension
+	ldy	#-1
+	lda	#$9b
+filename_strlen
+	iny
+	cmp	filename,y
+	bne	filename_strlen
+	cpy	#4
+	bcc	unknown_format_error
+	lda	filename-4,y
+	cmp	#'.'
+	bne	unknown_format_error
+	ldx	#format_count-1
+filename_find_ext
+	lda	filename-3,y
+	ora	#$20
+	cmp	format_ext1,x
+	bne	filename_find_ext_next
+	lda	filename-2,y
+	ora	#$20
+	cmp	format_ext2,x
+	bne	filename_find_ext_next
+	lda	filename-1,y
+	ora	#$20
+	cmp	format_ext3,x
+	beq	filename_found_ext
+filename_find_ext_next
+	dex
+	bpl	filename_find_ext
+
+unknown_format_error
+	lda	<unknown_format_txt
+	ldx	>unknown_format_txt
+	jmp	print
+
+no_filename_error
+	lda	<no_filename_txt
+	ldx	>no_filename_txt
+	jmp	print
+
+; Open file and call format-specific routine
+filename_found_ext
+	mva	format_lo,x	format_jmp+1
+	mva	format_hi,x	format_jmp+2
+
 	lda	<filename
 	ldx	>filename
 	jsr	open
 
-;	jmp	degas_header
-;	jmp	doodle_header
-;	jmp	neo_header
-;	jmp	fuckpaint_header
-	jmp	dunegraph_header
+format_jmp
+	jmp	$4c4c
 
+; NEO
 neo_header
 	lda	#2
 	jsr	read_short
@@ -76,6 +138,7 @@ neo_header
 	lda	#126
 	bne	neo1	; jmp
 
+; PI1, PI2, PI3
 degas_header
 	lda	#34
 neo1
@@ -91,10 +154,12 @@ format_error
 	ldx	>format_error_txt
 	jmp	print
 
+; DOO
 doodle_header
 	lda	#2
 	bne	format_ok	; jmp
 
+; DG1
 dunegraph_header
 	lda	#8
 	jsr	read_short
@@ -106,12 +171,14 @@ dunegraph_check_header
 	dey
 	bpl	dunegraph_check_header
 
+; PI4, PI9
 fuckpaint_header
 	lda	<1024
 	ldx	>1024
 	jsr	read
 	lda	#3
 
+; Setup VBXE and palette
 format_ok
 	sta	st_resolution
 	tax
@@ -121,6 +188,7 @@ format_ok
 
 	jsr	set_palette
 
+; Read & decode loop
 	mwa	#$4000+[scr_vbxe&$3fff]	scr_ptr
 	mva	#$80+[scr_vbxe>>14]	vbxe_bank
 	mva	#0	y
@@ -147,10 +215,13 @@ vbxe_set_up
 
 	jsr	close
 	jsr	getchar
+
+; Return to DOS
 	jsr	reset_vbxe
 	ldy	#1
-	rts	; return to DOS
+	rts
 
+; Detect VBXE
 fx_detect
 	mwa	#$d600	fx_ptr
 	jsr	fx_detect_1
@@ -168,6 +239,7 @@ fx_detect_1
 fx_detect_exit
 	rts
 
+; Set ST/Falcon palette in VBXE
 set_palette
 	ldy	#$44
 	mva	#0	(fx_ptr),y+	; CSEL
@@ -239,6 +311,7 @@ set_palette_gray
 	sta	(fx_ptr),y
 	rts
 
+; Enable VBXE display
 setup_vbxe
 	ldy	#$5d	; MEMB
 	mva	#$80+[xdl_vbxe>>14]	(fx_ptr),y	; mbce
@@ -255,6 +328,7 @@ setup_vbxe
 	mva	#xdl_vbxe>>16	(fx_ptr),y	; XDL_ADR2
 	rts
 
+; Disable VBXE display
 reset_vbxe
 	ldy	#$5d	; MEMB
 	mva	#0	(fx_ptr),y
@@ -264,6 +338,7 @@ reset_vbxe
 	mva	save_colbak	$2c8
 	rts
 
+; Print a message
 print
 	sta	$344
 	stx	$345
@@ -272,8 +347,9 @@ print
 	ldx	#0
 	jmp	$e456
 
-getchar
+; Wait for a key
 ; Doesn't return the char actually
+getchar
 	lda	<keyboard_device
 	ldx	>keyboard_device
 	jsr	open
@@ -281,6 +357,7 @@ getchar
 	jsr	read_short
 	jmp	close
 
+; Open file or keyboard
 open
 	sta	$354
 	stx	$355
@@ -302,8 +379,10 @@ io_error
 	ldx	>io_error_txt
 	jmp	print
 
+; Read from file up to 255 bytes
 read_short
 	ldx	#0
+; Read from file
 read
 	sta	$358
 	stx	$359
@@ -311,10 +390,12 @@ read
 	lda	#7	; read binary
 	bne	cio	!
 
+; Close file
 close
 	lda	#12	; close
 	bne	cio	!
 
+; Decode ST/Falcon bitmap
 decode
 	mwa	#buffer	buf_ptr
 	ldy	#$5d	; MEMB
@@ -330,6 +411,7 @@ decode_ptr	equ	*-2
 	bcc	decode_1
 	rts
 
+; Decode ST low
 decode_low_16pixels
 ; 16-color Atari ST mode is B0 B0 B1 B1 B2 B2 B3 B3 B0 B0 B1 B1 ...
 ; where B0 are bytes of the least-significant bitplane
@@ -366,6 +448,7 @@ decode_low_1pixel
 	bne	decode_low_1pixel
 	rts
 
+; Decode ST medium
 decode_medium_16pixels
 ; 4-color Atari ST mode is B0 B0 B1 B1 B0 B0 B1 B1 B0 ...
 	jsr	decode_medium_8pixels ; B0 -- B1 --
@@ -397,6 +480,7 @@ decode_medium_2pixels
 	bne	decode_medium_2pixels
 	rts
 
+; Decode ST high
 decode_high_line
 ; 640x400 - convert to 640x200
 	mva	#80	bitplane+2
@@ -409,6 +493,7 @@ decode_high_8pixels
 	lda	#80
 	rts
 
+; Decode Falcon 256-color
 decode_falcon_16pixels
 	jsr	decode_falcon_8pixels
 	inw	buf_ptr
@@ -449,6 +534,15 @@ put_vbxe_byte
 put_vbxe_byte_ret
 	rts
 
+format_ext1	dta	c'pppdnppd'
+format_ext2	dta	c'iiioeiig'
+format_ext3	dta	c'123oo491'
+format_lo
+	dta	l(degas_header,degas_header,degas_header,doodle_header,neo_header,fuckpaint_header,fuckpaint_header,dunegraph_header)
+format_hi
+	dta	h(degas_header,degas_header,degas_header,doodle_header,neo_header,fuckpaint_header,fuckpaint_header,dunegraph_header)
+format_count	equ	*-format_hi
+
 stres2vbxe
 	dta	h($8000,$9000,$9000,$8000) ; XDLC_END,XDLC_END|XDLC_HR
 
@@ -479,6 +573,10 @@ xdl_len	equ	*-xdl
 
 vbxe_not_found_txt
 	dta	c'This program requires VBXE FX v1.2x!',$9b
+no_filename_txt
+	dta	c'Specify filename in the command line',$9b
+unknown_format_txt
+	dta	c'Unknown file format',$9b
 io_error_txt
 	dta	c'I/O error',$9b
 format_error_txt
@@ -494,8 +592,8 @@ filename
 ;	dta	c'H:14TOURN.NEO',$9b
 ;	dta	c'H:ELMRSESN.NEO',$9b
 ;	dta	c'H:MEDRES.NEO',$9b
-;	dta	c'H:PIESIU.PI9',$9b
-	dta	c'H:PIESIU.DGU',$9b
+;	dta	c'H:CHEERS.PI9',$9b
+;	dta	c'H:ONE_MAN.DG1',$9b
 
 buffer	org	*+BUFFER_LEN
 st_palette	equ	buffer+2
