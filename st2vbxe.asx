@@ -1,6 +1,6 @@
 ; Show Atari ST/Falcon graphics file:
-; *.PI1 = "DEGAS", 320x200, 16 colors from 512
-; *.PI2 = "DEGAS", 640x200, 4 colors from 512
+; *.PI1 = "DEGAS", 320x200, 16 colors from 4096
+; *.PI2 = "DEGAS", 640x200, 4 colors from 4096
 ; *.PI3 = "DEGAS", 640x400, black and white
 ; *.DOO = "Doodle", 640x400, black and white
 ; *.NEO = "NEOchrome", any of the above resolutions
@@ -274,22 +274,21 @@ set_palette_falcon_1
 	rts
 
 set_palette_st
-; Each ST color is %xxxxxRRR %xGGGxBBB
+; Each STE color is %xxxxrRRR %gGGGbBBB
 	lda	st_palette,x+
-	and	#7
+	and	#$f
 	tay
 	lda	set_palette_st2vbxe,y
 	ldy	#$46	; CR
 	sta	(fx_ptr),y
 	lda	st_palette,x
 :4	lsr	@
-	and	#7
 	tay
 	lda	set_palette_st2vbxe,y
 	ldy	#$47	; CG
 	sta	(fx_ptr),y
 	lda	st_palette,x+
-	and	#7
+	and	#$f
 	tay
 	lda	set_palette_st2vbxe,y
 	ldy	#$48	; CB
@@ -558,7 +557,8 @@ stres2lines
 	dta	BUFFER_STLINES,BUFFER_STLINES,BUFFER_STLINES,BUFFER_STLINES/2
 
 set_palette_st2vbxe
-:8	dta	255*#/7
+:8	dta	$22*#
+:8	dta	$22*#+$11
 
 dunegraph_expected_header
 	dta	c'DGU',1,h(320),l(320),h(200),l(200)

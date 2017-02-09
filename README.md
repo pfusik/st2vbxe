@@ -9,8 +9,8 @@ enhanced with the [VBXE video card](http://spiflash.org/node/10).
 
 Supported formats:
 
-* *.PI1 = "DEGAS", 320x200, 16 colors from 512
-* *.PI2 = "DEGAS", 640x200, 4 colors from 512
+* *.PI1 = "DEGAS", 320x200, 16 colors from 4096
+* *.PI2 = "DEGAS", 640x200, 4 colors from 4096
 * *.PI3 = "DEGAS", 640x400, black and white
 * *.DOO = "Doodle", 640x400, black and white
 * *.NEO = "NEOchrome", any of the above resolutions
