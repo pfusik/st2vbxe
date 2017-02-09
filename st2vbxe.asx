@@ -210,6 +210,8 @@ vbxe_set_up
 	ldy	#$5d	; MEMB
 	mva	#$80+[[xdl_vbxe+xdl_2-xdl]>>14]	(fx_ptr),y	; mbce
 	stx	$4000+[[xdl_vbxe+xdl_2-xdl]&$3fff]
+; unmap VBXE memory so that it doesn't conflict with SpartaDOS X I/O
+	mva	#0	(fx_ptr),y
 	cpx	#199
 	bcc	read_1
 
