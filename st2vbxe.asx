@@ -39,10 +39,9 @@ st_resolution	equ	$82
 y	equ	$83
 scr_ptr	equ	$84	; 2
 vbxe_bank	equ	$86
-save_colbak	equ	$87
+cnt	equ	$87
 buf_ptr	equ	$88	; 2
 bitplane	equ	$8a	; 8
-cnt	equ	$92
 
 	org	$8000	; we'll map VBXE memory into $4000-$7fff
 main
@@ -53,7 +52,6 @@ main
 	ldx	>vbxe_not_found_txt
 	jmp	print
 found_vbxe
-	mva	$2c8	save_colbak
 
 ; Get filename
 	lda	11
@@ -335,16 +333,25 @@ reset_vbxe
 	mva	#0	(fx_ptr),y
 	ldy	#$40	; VIDEO_CONTROL
 	mva	#0	(fx_ptr),y
-	mva	#$22	$22f	; normal screen
-	mva	save_colbak	$2c8
-	rts
+
+	ldy	#12	; close
+	jsr	cio0
+	mva	#12	$34a	; open for read/write
+	mva	#0	$34b
+	lda	<editor_device
+	ldx	>editor_device
+	ldy	#3	; open
+	bne	cio0addr	!
 
 ; Print a message
 print
+	mvy	>1024	$349	; just don't print more than 1k characters ;)
+	ldy	#9	; write line
+cio0addr
 	sta	$344
 	stx	$345
-	mva	>1024	$349	; just don't print more than 1k characters ;)
-	mva	#9	$342	; write line
+cio0
+	sty	$342
 	ldx	#0
 	jmp	$e456
 
@@ -586,6 +593,8 @@ format_error_txt
 
 keyboard_device
 	dta	c'K:',$9b
+editor_device
+	dta	c'E:',$9b
 filename
 ;	dta	c'H:STPAD.PI1',$9b
 ;	dta	c'H:BG_PIC.PI2',$9b
