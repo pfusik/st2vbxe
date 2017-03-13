@@ -19,7 +19,7 @@ Supported formats:
 
 This is my first code for VBXE.
 The image filename must be passed on the command line.
-(SpartaDOS only, sorry!)
+(tested with SpartaDOS, DOS II+/D, MyDOS)
 
 Cross-assemble with [xasm](https://github.com/pfusik/xasm).
 

@@ -6,7 +6,7 @@
 ; *.NEO = "NEOchrome", any of the above resolutions
 ; *.PI4, *.PI9 = "Fuckpaint", 320x200, 256 colors from 262144
 ; *.DG1 = "DuneGraph", 320x200, 256 colors from 262144
-; Filename must be passed in SpartaDOS command line.
+; Filename must be passed in command line.
 
 ; 400 lines would be doable using the interlace trick revealed in 2009 by Rybags.
 ; Unfortunately, Rybags' trick doesn't work on all TVs (especially the LCDs) and emulators.
@@ -35,8 +35,11 @@ scr_vbxe	equ	$10100
 
 ; Zero-page variables
 fx_ptr	equ	$80	; 2
+arg_str	equ	$82	; 2
 st_resolution	equ	$82
 y	equ	$83
+arg_len	equ	$84
+arg_idx	equ	$85
 scr_ptr	equ	$84	; 2
 vbxe_bank	equ	$86
 cnt	equ	$87
@@ -53,26 +56,112 @@ main
 	jmp	print
 found_vbxe
 
-; Get filename
+; Get filename from SpartaDOS...
 	lda	11
 	cmp	#$c0
-	bcs	no_filename_error
+	bcs	no_sparta
 	ldy	#3
 	lda	(10),y
 	cmp	#{jmp a:}
-	bne	no_filename_error
+	bne	no_sparta
 	iny
-	mva	(10),y	filename_jsr+1
+	mva	(10),y	sparta_jsr+1
 	iny
-	mva	(10),y	filename_jsr+2
-filename_jsr
+	mva	(10),y	sparta_jsr+2
+sparta_jsr
 	jsr	$2020
 	beq	no_filename_error
 	ldy	#33
-filename_copy
+sparta_copy
 	mva	(10),y	filename-33,y+
 	cmp	#$9b
-	bne	filename_copy
+	bne	sparta_copy
+	jmp	filename_ok
+no_sparta
+
+; ... or channel #0
+	lda	$342	; command
+	cmp	#5	; read line
+	bne	no_filename_error
+	lda	$343	; status
+	bmi	no_filename_error
+; don't assume the line is EOL-terminated
+; DOS II+/D overwrites the EOL with ".COM"
+; that's why we rely on the length
+	lda	$349	; length hi
+	bne	no_filename_error
+	ldx	$348	; length lo
+	beq	no_filename_error
+	inx:inx
+	stx	arg_len
+; give access to three bytes before the input buffer
+; in DOS II+/D the device prompt ("D1:") is there
+	lda	$344
+	sub	#3
+	sta	arg_str
+	lda	$345
+	sbc	#0
+	sta	arg_str+1
+; first skip ST2VBXE.COM
+; it's space-terminated on DOS II+/D,
+; NUL-terminated on MyDOS
+	ldy	#3
+	lda	#' '
+arg_skip_exe
+	cmp	(arg_str),y
+	bcs	arg_space_1
+	iny
+	cpy	arg_len
+	bcc	arg_skip_exe
+	bcs	no_filename_error	!
+; then skip spaces/NULs
+arg_space
+	cmp	(arg_str),y
+	bcc	arg_arg
+arg_space_1
+	iny
+	cpy	arg_len
+	bcc	arg_space
+no_filename_error
+	lda	<no_filename_txt
+	ldx	>no_filename_txt
+	jmp	print
+; now we have the filename
+arg_arg
+	sty	arg_idx
+	jsr	arg_is_device
+	bcc	arg_default_device
+	cpy	arg_len
+	bcs	arg_default_device
+; filename with device, congratulations, we can use it
+	ldx	#0
+	beq	arg_copy	!
+; filename without device
+arg_default_device
+	ldy	#0
+	jsr	arg_is_device
+	bcc	arg_d_device
+; device = DOS II+/D prompt
+	tya
+	tax
+	inx
+	mva:rpl	(arg_str),y	filename,y-
+	bmi	arg_copy	!
+; device = "D:"
+arg_d_device
+	mva	#'D'	filename
+	mva	#':'	filename+1
+	ldx	#2
+; copy filename
+arg_copy
+	ldy	arg_idx
+arg_copy_loop
+	mva	(arg_str),y+	filename,x+
+	cpy	arg_len
+	bcc	arg_copy_loop
+	mva	#$9b	filename,x
+
+filename_ok
 
 ; Identify format by extension
 	ldy	#-1
@@ -107,11 +196,6 @@ filename_find_ext_next
 unknown_format_error
 	lda	<unknown_format_txt
 	ldx	>unknown_format_txt
-	jmp	print
-
-no_filename_error
-	lda	<no_filename_txt
-	ldx	>no_filename_txt
 	jmp	print
 
 ; Open file and call format-specific routine
@@ -342,6 +426,31 @@ reset_vbxe
 	ldx	>editor_device
 	ldy	#3	; open
 	bne	cio0addr	!
+
+; Returns C=1 if (arg_str),y looks like
+; Atari OS device name: /[A-Z][1-9]?:/
+arg_is_device
+	lda	(arg_str),y
+	cmp	#'A'
+	bcc	arg_is_device_ret
+	cmp	#'Z'+1
+	bcs	arg_is_device_no
+	iny
+	lda	(arg_str),y
+	cmp	#'1'
+	bcc	arg_is_device_ret
+	ert	'9'+1!=':'
+	cmp	#':'
+	bcs	arg_is_device_end
+	iny
+	lda	(arg_str),y
+	cmp	#':'
+arg_is_device_end
+	beq	arg_is_device_ret
+arg_is_device_no
+	clc
+arg_is_device_ret
+	rts
 
 ; Print a message
 print
