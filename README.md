@@ -5,7 +5,7 @@ ST2VBXE shows pictures in formats native to
 [Atari ST](http://en.wikipedia.org/wiki/Atari_ST)
 and [Atari Falcon](http://en.wikipedia.org/wiki/Atari_Falcon)
 on an [Atari 8-bit](http://en.wikipedia.org/wiki/Atari_8-bit_family)
-enhanced with the [VBXE video card](http://spiflash.org/node/10).
+enhanced with the VBXE video card.
 
 Supported formats:
 
@@ -23,6 +23,6 @@ The image filename must be passed on the command line.
 
 Cross-assemble with [xasm](https://github.com/pfusik/xasm).
 
-If you want to view the above formats (plus three hundred others)
+If you want to view the above formats (plus four hundred others)
 on a more popular platform such as Windows, Android, macOS or Linux,
 try my other project called [RECOIL](http://recoil.sourceforge.net/).
