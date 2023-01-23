@@ -23,6 +23,6 @@ The image filename must be passed on the command line.
 
 Cross-assemble with [xasm](https://github.com/pfusik/xasm).
 
-If you want to view the above formats (plus four hundred others)
+If you want to view the above formats (plus five hundred others)
 on a more popular platform such as Windows, Android, macOS or Linux,
 try my other project called [RECOIL](http://recoil.sourceforge.net/).
